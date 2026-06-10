@@ -63,6 +63,8 @@
   .col-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid var(--teal-soft)}
   .col-head h3{font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;line-height:1.3}
   .col-head .n{background:var(--teal-soft);color:var(--teal-deep);border-radius:99px;font-size:12px;font-weight:700;padding:1px 9px;flex-shrink:0}
+  .col.standby-col .col-head{border-bottom-color:var(--warn-soft)}
+  .col.standby-col .col-head .n{background:var(--warn-soft);color:var(--warn)}
   .col.noshow-col .col-head{border-bottom-color:var(--urgent-soft)}
   .col.noshow-col .col-head .n{background:var(--urgent-soft);color:var(--urgent)}
   .col.terminal .col-head{border-bottom-color:var(--line)}
@@ -218,6 +220,7 @@ const RELANCES_ESSAI=[
    Forms annulées → Signé → NO SHOW (RDV config) → Numéro envoyé
    → NO SHOW (numéro envoyé) → Essai (adoption) → Clients / Perdus */
 const STAGES=[
+  {id:'standby',       label:'Stand-by · à relancer',    next:'signe', nextLabel:'Réactivé →', standbyCol:true},
   {id:'form_annulee',  label:'Forms annulées · à recontacter', next:'signe', nextLabel:'Re-signé →'},
   {id:'signe',         label:'Signé',                    next:'numero_envoye', nextLabel:'Numéro envoyé →', noshowTo:'noshow_rdv'},
   {id:'noshow_rdv',    label:'NO SHOW (RDV configuration)', next:'numero_envoye', nextLabel:'RDV fait · numéro envoyé →', noshowCol:true},
@@ -330,6 +333,7 @@ function priorities(){
   const list=[];
   for(const p of state){
     if(['client','perdu'].includes(p.stage)) continue;
+    if(p.stage==='standby'&&relanceDue(p)) list.push({p,score:0.8,reason:'Stand-by à relancer',cls:'r-relance',detail:'Dossier en stand-by'+(p.prevStage?' (venait de « '+stageById(p.prevStage).label+' »)':'')});
     if(p.stage==='noshow_rdv') list.push({p,score:0,reason:'No-show RDV config',cls:'r-noshow',detail:'À recontacter pour refixer le RDV'+(relanceDue(p)?'':' (relance le '+fmtD(p.nextRelance)+')')});
     if(p.stage==='noshow_numero') list.push({p,score:0.5,reason:'No-show numéro',cls:'r-noshow',detail:(numeroDays(p)!==null?'Numéro envoyé il y a '+numeroDays(p)+' j — ':'')+'à relancer'});
     if(signeStale(p)) list.push({p,score:1.2,reason:'Signé depuis +7 j',cls:'r-noshow',detail:'Signé le '+fmtD(p.dateSignature)+(p.rdvConfig?' — RDV config prévu le '+fmtDT(p.rdvConfig):' — RDV config à caler')});
@@ -365,7 +369,7 @@ function render(){
   const q=document.getElementById('search').value.trim().toLowerCase();
   const match=p=>!q||[p.nom,p.cabinet,p.tel,p.codeClient,p.notes].join(' ').toLowerCase().includes(q);
 
-  const enCours=state.filter(p=>!['client','perdu','form_annulee'].includes(p.stage)).length;
+  const enCours=state.filter(p=>!['client','perdu','form_annulee','standby'].includes(p.stage)).length;
   const numEnvoyes=state.filter(p=>['numero_envoye','noshow_numero'].includes(p.stage)).length;
   const enEssai=state.filter(p=>p.stage==='essai').length;
   const prio=priorities();
@@ -397,7 +401,7 @@ function render(){
   document.getElementById('emptyBoard').hidden=state.length>0;
   board.innerHTML=STAGES.map(s=>{
     const cards=state.filter(p=>p.stage===s.id&&match(p));
-    return `<div class="col ${s.terminal?'terminal':''} ${s.noshowCol?'noshow-col':''}">
+    return `<div class="col ${s.terminal?'terminal':''} ${s.noshowCol?'noshow-col':''} ${s.standbyCol?'standby-col':''}">
       <div class="col-head"><h3>${s.label}</h3><span class="n">${cards.length}</span></div>
       ${cards.map(cardHTML).join('')||''}
     </div>`;
@@ -410,7 +414,7 @@ function cardHTML(p){
   const due=relanceDue(p);
   const stale=signeStale(p);
   // rouge : relance attendue / sans réponse — vert : relancé, en attente de la suite
-  const isRed=(s.noshowCol&&(due||!p.lastContact))||numeroStale(p)||stale;
+  const isRed=(s.noshowCol&&(due||!p.lastContact))||(p.stage==='standby'&&due)||numeroStale(p)||stale;
   const isOk=!isRed&&!due&&!s.terminal&&!!p.lastContact;
   const badges=[];
   if(isOk) badges.push(`<span class="badge b-ok">✓ Relancé le ${fmtD(p.lastContact)}</span>`);
@@ -443,6 +447,7 @@ function cardHTML(p){
       ${s.next?`<button class="btn-sm btn-next" data-next="${p.id}">${s.nextLabel}</button>`:''}
       ${!s.terminal?`<button class="btn-sm btn-relance" data-relance="${p.id}" title="Marquer relancé aujourd'hui">Relancé ✓</button>`:''}
       ${s.noshowTo?`<button class="btn-sm btn-noshow" data-noshow="${p.id}">No-show →</button>`:''}
+      ${!s.terminal&&!s.standbyCol?`<button class="btn-sm btn-ghost" data-standby="${p.id}" title="Mettre en stand-by">⏸</button>`:''}
       ${!s.terminal?`<button class="btn-sm btn-ghost" data-lost="${p.id}" title="Marquer perdu">✕</button>`:''}
     </div>
     ${p.lien&&(isRed||due)?`<div class="card-link">📞 À relancer — <a href="${esc(p.lien)}" target="_blank" rel="noopener">clique ici ↗</a></div>`:''}
@@ -469,6 +474,14 @@ async function nextStage(id){
   const p=state.find(x=>x.id===id); if(!p) return;
   const s=stageById(p.stage); if(!s.next) return;
   const from=p.stage;
+  if(from==='standby'){
+    const back=(p.prevStage&&p.prevStage!=='standby'&&STAGES.some(x=>x.id===p.prevStage))?p.prevStage:'signe';
+    p.stage=back; p.nextRelance=addDays(isoToday(),1);
+    log(p,'Réactivé — retour à « '+stageById(back).label+' »');
+    await saveState(); render();
+    toast(p.nom+' → '+stageById(back).label);
+    return;
+  }
   p.stage=s.next;
   if(s.next==='numero_envoye'){
     if(!p.numeroSent||from==='signe'||from==='noshow_rdv') p.numeroSent=isoToday();
@@ -510,6 +523,16 @@ async function markRelance(id){
   log(p,'Relancé'+(p.nextRelance?' — prochaine relance le '+fmtD(p.nextRelance):''));
   await saveState(); render();
   toast('Relance enregistrée');
+}
+
+async function markStandby(id){
+  const p=state.find(x=>x.id===id); if(!p) return;
+  p.prevStage=p.stage;
+  p.stage='standby';
+  p.nextRelance=addDays(isoToday(),7);
+  log(p,'Mis en stand-by — relance prévue le '+fmtD(p.nextRelance));
+  await saveState(); render();
+  toast(p.nom+' → Stand-by');
 }
 
 async function markLost(id){
@@ -610,11 +633,12 @@ document.getElementById('btnImportGo').onclick=async()=>{
 
 /* ---------- Délégation d'événements ---------- */
 document.body.addEventListener('click',e=>{
-  const t=e.target.closest('[data-next],[data-relance],[data-noshow],[data-edit],[data-lost]');
+  const t=e.target.closest('[data-next],[data-relance],[data-noshow],[data-edit],[data-lost],[data-standby]');
   if(!t) return;
   if(t.dataset.next) nextStage(t.dataset.next);
   else if(t.dataset.relance) markRelance(t.dataset.relance);
   else if(t.dataset.noshow) markNoShow(t.dataset.noshow);
+  else if(t.dataset.standby) markStandby(t.dataset.standby);
   else if(t.dataset.lost) markLost(t.dataset.lost);
   else if(t.dataset.edit) openEdit(t.dataset.edit);
 });
