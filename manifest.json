@@ -1,0 +1,14 @@
+{
+  "name": "Dental Call IA — Suivi praticiens",
+  "short_name": "Suivi DC",
+  "description": "Pipeline de suivi des praticiens : signatures, RDV config, essais et relances.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#F4F8F7",
+  "theme_color": "#0E7C66",
+  "lang": "fr",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

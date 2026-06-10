@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suivi Praticiens — Dental Call IA</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0E7C66">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F4F8F7; --surface:#FFFFFF; --ink:#13312B; --ink-soft:#5A716B;
+    --teal:#0E7C66; --teal-soft:#E2F1ED; --teal-deep:#0A5747;
+    --urgent:#D9512C; --urgent-soft:#FBEAE4;
+    --warn:#C98A06; --warn-soft:#FBF2DE;
+    --line:#DCE7E4; --radius:14px;
+    --ok:#1F8A4C; --ok-soft:#E3F3E9;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
+  h1,h2,h3,.display{font-family:'Bricolage Grotesque','Inter',sans-serif}
+
+  header{background:var(--surface);border-bottom:1px solid var(--line);padding:14px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:50}
+  header h1{font-size:20px;font-weight:800;letter-spacing:-.02em}
+  header h1 span{color:var(--teal)}
+  .header-stats{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+  .stat-chip{background:var(--teal-soft);color:var(--teal-deep);border-radius:99px;padding:5px 12px;font-weight:600;font-size:12.5px}
+  .stat-chip.alert{background:var(--urgent-soft);color:var(--urgent)}
+
+  .toolbar{display:flex;gap:10px;padding:16px 22px 0;flex-wrap:wrap;align-items:center}
+  .toolbar input[type=search]{flex:1;min-width:220px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;font:inherit;background:var(--surface)}
+  .toolbar input[type=search]:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal)}
+  button{font:inherit;cursor:pointer;border:none;border-radius:10px;padding:10px 16px;font-weight:600;transition:filter .12s}
+  button:hover{filter:brightness(.95)}
+  button:focus-visible{outline:2px solid var(--teal-deep);outline-offset:2px}
+  .btn-primary{background:var(--teal);color:#fff}
+  .btn-ghost{background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+  .btn-sm{padding:6px 10px;font-size:12.5px;border-radius:8px}
+
+  main{padding:18px 22px 60px;max-width:1700px;margin:0 auto}
+
+  /* ---- Bloc priorités ---- */
+  .prio{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--urgent);border-radius:var(--radius);padding:16px 18px;margin-bottom:22px}
+  .prio h2{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .prio h2 .count{background:var(--urgent);color:#fff;border-radius:99px;font-size:12px;padding:2px 9px}
+  .prio-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px dashed var(--line);flex-wrap:wrap}
+  .prio-item:first-of-type{border-top:none}
+  .prio-reason{font-weight:600;font-size:12.5px;padding:4px 10px;border-radius:99px;white-space:nowrap}
+  .r-noshow{background:var(--urgent-soft);color:var(--urgent)}
+  .r-relance{background:var(--warn-soft);color:var(--warn)}
+  .r-essai{background:var(--teal-soft);color:var(--teal-deep)}
+  .prio-name{font-weight:700;cursor:pointer}
+  .prio-name:hover{text-decoration:underline}
+  .prio-detail{color:var(--ink-soft);font-size:13px}
+  .prio-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+
+  /* ---- Kanban ---- */
+  .board{display:flex;gap:14px;overflow-x:auto;padding-bottom:14px;align-items:flex-start}
+  .col{min-width:268px;width:268px;flex-shrink:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px}
+  .col-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid var(--teal-soft)}
+  .col-head h3{font-size:12.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;line-height:1.3}
+  .col-head .n{background:var(--teal-soft);color:var(--teal-deep);border-radius:99px;font-size:12px;font-weight:700;padding:1px 9px;flex-shrink:0}
+  .col.noshow-col .col-head{border-bottom-color:var(--urgent-soft)}
+  .col.noshow-col .col-head .n{background:var(--urgent-soft);color:var(--urgent)}
+  .col.terminal .col-head{border-bottom-color:var(--line)}
+
+  .card{border:1px solid var(--line);border-radius:11px;padding:11px 12px;margin-bottom:9px;background:#fff;position:relative}
+  .card.is-noshow{border-color:var(--urgent);background:#FFFBF9}
+  .card.is-due{border-color:var(--warn)}
+  .card.is-ok{border-color:var(--ok);background:#FBFEFC}
+  .b-ok{background:var(--ok-soft);color:var(--ok)}
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+  .card-name{font-weight:700;font-size:14px;cursor:pointer}
+  .card-name:hover{color:var(--teal-deep)}
+  .card-sub{color:var(--ink-soft);font-size:12.5px;margin-top:2px}
+  .badges{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+  .badge{font-size:11.5px;font-weight:600;border-radius:99px;padding:2.5px 9px}
+  .b-noshow{background:var(--urgent);color:#fff}
+  .b-alert{background:var(--urgent-soft);color:var(--urgent)}
+  .b-relance{background:var(--warn-soft);color:var(--warn)}
+  .b-trial{background:var(--teal-soft);color:var(--teal-deep)}
+  .b-trial.ending{background:var(--urgent-soft);color:var(--urgent)}
+  .card-actions{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}
+  .btn-next{background:var(--teal);color:#fff;flex:1;min-width:0}
+  .btn-relance{background:var(--warn-soft);color:var(--warn)}
+  .btn-noshow{background:var(--urgent-soft);color:var(--urgent)}
+  .card .menu-btn{background:none;border:none;color:var(--ink-soft);padding:2px 6px;font-size:16px;line-height:1}
+  .card-rdv{margin-top:9px;padding-top:8px;border-top:1px dashed var(--line);font-size:12.5px;font-weight:600;color:#3B4B9B}
+  .chk-list{margin-top:9px;padding-top:8px;border-top:1px dashed var(--line);display:flex;flex-direction:column;gap:4px}
+  .chk{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--ink-soft);cursor:pointer}
+  .chk input{accent-color:var(--teal);width:15px;height:15px;cursor:pointer}
+  .chk.done{color:var(--ok);text-decoration:line-through}
+  .chk.due{color:var(--urgent)}
+  .chk-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .chk-row a{font-size:12px;font-weight:700;color:var(--urgent);text-decoration:underline;white-space:nowrap}
+  .card-link{margin-top:9px;padding-top:8px;border-top:1px dashed var(--line);font-size:12.5px;font-weight:700;color:var(--urgent)}
+  .card-link a{color:var(--urgent);text-decoration:underline}
+  .fiche-btn{color:var(--teal-deep);padding:2px 6px;font-size:15px;text-decoration:none;font-weight:700;line-height:1}
+  a.prio-fiche{font-size:12.5px;font-weight:700;color:var(--urgent);text-decoration:underline;padding:6px 4px;white-space:nowrap}
+
+  /* ---- Modales ---- */
+  dialog{border:none;border-radius:16px;padding:0;max-width:560px;width:92vw;box-shadow:0 24px 60px rgba(10,55,45,.25)}
+  dialog::backdrop{background:rgba(15,40,35,.45)}
+  .modal-inner{padding:22px 24px}
+  .modal-inner h2{font-size:18px;margin-bottom:14px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+  .form-grid .full{grid-column:1/-1}
+  label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;font-weight:600;color:var(--ink-soft)}
+  label.f input,label.f select,label.f textarea{font:inherit;padding:9px 11px;border:1px solid var(--line);border-radius:9px;color:var(--ink)}
+  label.f textarea{resize:vertical;min-height:64px}
+  label.f input:focus,label.f select:focus,label.f textarea:focus{outline:2px solid var(--teal);border-color:var(--teal)}
+  .modal-actions{display:flex;gap:9px;justify-content:flex-end;margin-top:18px}
+  .danger-link{margin-right:auto;background:none;color:var(--urgent);padding:10px 4px;font-weight:600}
+
+  .hist{margin-top:14px;border-top:1px solid var(--line);padding-top:10px;max-height:160px;overflow:auto}
+  .hist h3{font-size:13px;margin-bottom:6px}
+  .hist li{list-style:none;font-size:12.5px;color:var(--ink-soft);padding:3px 0}
+  .hist li b{color:var(--ink)}
+
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 20px;border-radius:99px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s;z-index:99}
+  .toast.show{opacity:1}
+
+  .empty-board{text-align:center;padding:60px 20px;color:var(--ink-soft)}
+  .empty-board .big{font-family:'Bricolage Grotesque';font-size:22px;font-weight:700;color:var(--ink);margin-bottom:8px}
+
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+  @media (max-width:640px){
+    .form-grid{grid-template-columns:1fr}
+    header{padding:12px 14px}
+    main,.toolbar{padding-left:14px;padding-right:14px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Dental Call <span>IA</span> — Suivi praticiens</h1>
+  <div class="header-stats" id="headerStats"></div>
+</header>
+
+<div class="toolbar">
+  <input type="search" id="search" placeholder="Rechercher un praticien, cabinet, ville…" aria-label="Rechercher">
+  <button class="btn-primary" id="btnAdd">+ Nouvelle signature</button>
+  <button class="btn-ghost" id="btnImport">Importer (CSV)</button>
+  <button class="btn-ghost" id="btnExportJson" title="Télécharger une sauvegarde de toutes tes données">💾 Sauvegarder</button>
+  <button class="btn-ghost" id="btnImportJson" title="Restaurer une sauvegarde">↩️ Restaurer</button>
+  <input type="file" id="fileImportJson" accept=".json,application/json" hidden>
+</div>
+
+<main>
+  <section class="prio" id="prioBlock" hidden>
+    <h2>🔥 À traiter en priorité <span class="count" id="prioCount">0</span></h2>
+    <div id="prioList"></div>
+  </section>
+
+  <div class="board" id="board"></div>
+  <div class="empty-board" id="emptyBoard" hidden>
+    <div class="big">Aucun praticien pour l'instant</div>
+    <p>Clique sur « + Nouvelle signature » pour ajouter ton premier praticien signé,<br>ou importe une liste en CSV.</p>
+  </div>
+</main>
+
+<!-- Modale ajout / édition -->
+<dialog id="dlgEdit">
+  <form method="dialog" class="modal-inner" id="formEdit">
+    <h2 id="dlgTitle">Nouvelle signature</h2>
+    <div class="form-grid">
+      <label class="f">Praticien *<input name="nom" required placeholder="Dr Martin"></label>
+      <label class="f">Cabinet<input name="cabinet" placeholder="Cabinet dentaire de la Gare"></label>
+      <label class="f">Téléphone<input name="tel" type="tel" placeholder="06 12 34 56 78"></label>
+      <label class="f">Code client<input name="codeClient" placeholder="Ex : DC-1042 (facultatif)"></label>
+      <label class="f">Date de signature<input name="dateSignature" type="date"></label>
+      <label class="f">RDV configuration<input name="rdvConfig" type="datetime-local"></label>
+      <label class="f">Étape<select name="stage" id="selStage"></select></label>
+      <label class="f">Frais de configuration<select name="fraisConfig"><option value="">—</option><option value="0">0 €</option><option value="295">295 €</option><option value="590">590 €</option></select></label>
+      <label class="f">Numéro envoyé le<input name="numeroSent" type="date" title="Date d'envoi du numéro IA"></label>
+      <label class="f">Début d'essai<input name="trialStart" type="date" title="À renseigner pour un praticien déjà en essai : le compteur de jours partira de cette date"></label>
+      <label class="f full">Lien de la fiche HubSpot<input name="lien" type="url" placeholder="https://app.hubspot.com/contacts/…"></label>
+      <label class="f full">Notes<textarea name="notes" placeholder="Infos prises au téléphone, contexte, objections…"></textarea></label>
+    </div>
+    <div class="hist" id="histBlock" hidden><h3>Historique</h3><ul id="histList"></ul></div>
+    <div class="modal-actions">
+      <button type="button" class="danger-link" id="btnDelete" hidden>Supprimer</button>
+      <button type="button" class="btn-ghost" id="btnCancel">Annuler</button>
+      <button type="submit" class="btn-primary" id="btnSave">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modale import -->
+<dialog id="dlgImport">
+  <div class="modal-inner">
+    <h2>Importer des signatures</h2>
+    <p style="color:var(--ink-soft);margin-bottom:10px">Colle une ligne par praticien, au format :<br><code>Praticien ; Cabinet ; Téléphone ; Code client</code> (séparateur <b>;</b> ou <b>,</b> ou tabulation). Seul le nom est obligatoire.</p>
+    <label class="f"><textarea id="importText" style="min-height:140px;width:100%" placeholder="Dr Martin ; Cabinet de la Gare ; 06 12 34 56 78 ; DC-1042&#10;Dr Dupont ; ; 07 98 76 54 32"></textarea></label>
+    <div class="modal-actions">
+      <button type="button" class="btn-ghost" id="btnImportCancel">Annuler</button>
+      <button type="button" class="btn-primary" id="btnImportGo">Importer</button>
+    </div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const KEY='dentalcall:praticiens:v1';
+const TRIAL_DAYS=15;
+const RELANCES_ESSAI=[
+  {k:'simple',j:3,label:'Relance simple'},
+  {k:'suivie',j:7,label:'Relance suivie'},
+  {k:'mail',j:10,label:'Relance mail tarifaire'}
+];
+
+/* ---------- Pipeline ----------
+   Forms annulées → Signé → NO SHOW (RDV config) → Numéro envoyé
+   → NO SHOW (numéro envoyé) → Essai (adoption) → Clients / Perdus */
+const STAGES=[
+  {id:'form_annulee',  label:'Forms annulées · à recontacter', next:'signe', nextLabel:'Re-signé →'},
+  {id:'signe',         label:'Signé',                    next:'numero_envoye', nextLabel:'Numéro envoyé →', noshowTo:'noshow_rdv'},
+  {id:'noshow_rdv',    label:'NO SHOW (RDV configuration)', next:'numero_envoye', nextLabel:'RDV fait · numéro envoyé →', noshowCol:true},
+  {id:'numero_envoye', label:'Numéro envoyé',            next:'essai', nextLabel:'Équipé · démarrer essai →', noshowTo:'noshow_numero'},
+  {id:'noshow_numero', label:'NO SHOW (numéro envoyé)',  next:'essai', nextLabel:'Équipé · démarrer essai →', noshowCol:true},
+  {id:'essai',         label:'Essai en cours (adoption)',next:'client', nextLabel:'Converti client ✓'},
+  {id:'client',        label:'Clients ✓',                next:null, terminal:true},
+  {id:'perdu',         label:'Perdus',                   next:'form_annulee', nextLabel:'Form annulée →', terminal:true},
+];
+const stageById=id=>STAGES.find(s=>s.id===id)||STAGES[1];
+// migration des anciennes versions du pipeline
+const STAGE_MIGRATION={rdv_fixe:'noshow_rdv',au_chaud:'noshow_rdv',config_realise:'numero_envoye',essai_fini:'essai'};
+
+let state=[];
+let editingId=null;
+
+/* ---------- Stockage (adaptatif : Claude ou fichier autonome) ---------- */
+const hasClaudeStorage=typeof window.storage!=='undefined'&&window.storage&&typeof window.storage.get==='function';
+async function loadState(){
+  try{
+    if(hasClaudeStorage){
+      const r=await window.storage.get(KEY);
+      state=r&&r.value?JSON.parse(r.value):[];
+    }else{
+      const raw=localStorage.getItem(KEY);
+      state=raw?JSON.parse(raw):[];
+    }
+  }catch(e){ state=[]; }
+  for(const p of state){ if(STAGE_MIGRATION[p.stage]) p.stage=STAGE_MIGRATION[p.stage]; }
+}
+async function saveState(){
+  try{
+    if(hasClaudeStorage) await window.storage.set(KEY, JSON.stringify(state));
+    else localStorage.setItem(KEY, JSON.stringify(state));
+  }
+  catch(e){ toast("⚠️ Échec de la sauvegarde"); console.error(e); }
+}
+
+/* ---------- Export / Import JSON ---------- */
+function exportData(){
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='dentalcall-suivi-'+isoToday()+'.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Sauvegarde exportée ✓');
+}
+function importData(file){
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const data=JSON.parse(reader.result);
+      if(!Array.isArray(data)) throw new Error('format');
+      if(!confirm('Importer '+data.length+' praticien(s) ?\nOK = remplacer les données actuelles\nAnnuler = ne rien faire')) return;
+      state=data;
+      for(const p of state){ if(STAGE_MIGRATION[p.stage]) p.stage=STAGE_MIGRATION[p.stage]; }
+      await saveState(); render();
+      toast(data.length+' praticien(s) restauré(s) ✓');
+    }catch(e){ toast('⚠️ Fichier invalide'); }
+  };
+  reader.readAsText(file);
+}
+
+/* ---------- Utilitaires dates ---------- */
+const today=()=>{ const d=new Date(); d.setHours(0,0,0,0); return d; };
+const parseD=s=>{ if(!s) return null; const d=new Date(s); return isNaN(d)?null:d; };
+const fmtD=s=>{ const d=parseD(s); return d?d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'}):''; };
+const fmtDT=s=>{ const d=parseD(s); return d?d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'})+' '+d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}):''; };
+const isoToday=()=>new Date().toISOString().slice(0,10);
+const addDays=(s,n)=>{ const d=parseD(s)||new Date(); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+const daysDiff=(a,b)=>Math.round((a-b)/86400000);
+
+/* ---------- Logique métier ---------- */
+function trialElapsed(p){
+  if(p.stage!=='essai'||!p.trialStart) return null;
+  return daysDiff(today(),parseD(p.trialStart));
+}
+function trialDayLeft(p){
+  const el=trialElapsed(p);
+  return el===null?null:TRIAL_DAYS-el;
+}
+function numeroDays(p){
+  if(!['numero_envoye','noshow_numero'].includes(p.stage)||!p.numeroSent) return null;
+  return daysDiff(today(),parseD(p.numeroSent));
+}
+function numeroStale(p){
+  // numéro envoyé depuis plus de 2 jours sans réponse ni relance
+  if(p.stage!=='numero_envoye'||!p.numeroSent) return false;
+  let ref=parseD(p.numeroSent);
+  const lc=parseD(p.lastContact);
+  if(lc&&lc>ref) ref=lc;
+  return daysDiff(today(),ref)>2;
+}
+function signeStale(p){
+  // signé depuis plus de 7 jours et toujours bloqué à l'étape Signé
+  if(p.stage!=='signe'||!p.dateSignature) return false;
+  return daysDiff(today(),parseD(p.dateSignature))>7;
+}
+function rdvPassed(p){
+  return ['signe','noshow_rdv'].includes(p.stage) && p.rdvConfig && parseD(p.rdvConfig)<new Date();
+}
+function relanceDue(p){
+  if(!p.nextRelance) return false;
+  return parseD(p.nextRelance)<=today();
+}
+
+/* ---------- Priorités ---------- */
+function priorities(){
+  const list=[];
+  for(const p of state){
+    if(['client','perdu'].includes(p.stage)) continue;
+    if(p.stage==='noshow_rdv') list.push({p,score:0,reason:'No-show RDV config',cls:'r-noshow',detail:'À recontacter pour refixer le RDV'+(relanceDue(p)?'':' (relance le '+fmtD(p.nextRelance)+')')});
+    if(p.stage==='noshow_numero') list.push({p,score:0.5,reason:'No-show numéro',cls:'r-noshow',detail:(numeroDays(p)!==null?'Numéro envoyé il y a '+numeroDays(p)+' j — ':'')+'à relancer'});
+    if(signeStale(p)) list.push({p,score:1.2,reason:'Signé depuis +7 j',cls:'r-noshow',detail:'Signé le '+fmtD(p.dateSignature)+(p.rdvConfig?' — RDV config prévu le '+fmtDT(p.rdvConfig):' — RDV config à caler')});
+    if(rdvPassed(p)&&p.stage==='signe') list.push({p,score:1.3,reason:'RDV passé',cls:'r-noshow',detail:'RDV config du '+fmtDT(p.rdvConfig)+' — réalisé ou no-show ?'});
+    if(numeroStale(p)) list.push({p,score:1.5,reason:'Numéro sans réponse',cls:'r-noshow',detail:'Numéro envoyé il y a '+numeroDays(p)+' j — à relancer'});
+    if(relanceDue(p)&&!['noshow_rdv','noshow_numero'].includes(p.stage)){
+      const late=daysDiff(today(),parseD(p.nextRelance));
+      list.push({p,score:2,reason:'Relance due',cls:'r-relance',detail:late>0?('En retard de '+late+' j'):'À relancer aujourd\u2019hui'});
+    }
+    if(p.stage==='essai'&&p.trialStart){
+      const elj=trialElapsed(p);
+      const pend=RELANCES_ESSAI.filter(it=>elj>=it.j&&!(p.relancesEssai&&p.relancesEssai[it.k]));
+      if(pend.length) list.push({p,score:1.8,reason:pend[0].label+' (J+'+pend[0].j+')',cls:'r-relance',detail:'Jour '+elj+' d\u2019essai'+(pend.length>1?' \u2014 '+pend.length+' relances en attente':'')});
+    }
+    const left=trialDayLeft(p);
+    if(left!==null&&left<=2) list.push({p,score:3,reason:left<=0?'Essai fini':'Fin d\u2019essai J-'+left,cls:'r-essai',detail:'En essai depuis '+trialElapsed(p)+' j — appel de débrief / closing'});
+  }
+  // une seule entrée par praticien (la plus prioritaire), urgences relance d'abord
+  const seen=new Set(), out=[];
+  list.sort((a,b)=>a.score-b.score);
+  for(const it of list){
+    if(!seen.has(it.p.id)){
+      // dans les colonnes NO SHOW, ne remonter que si relance due
+      if(['noshow_rdv','noshow_numero'].includes(it.p.stage)&&!relanceDue(it.p)) continue;
+      seen.add(it.p.id); out.push(it);
+    }
+  }
+  return out;
+}
+
+/* ---------- Rendu ---------- */
+function render(){
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  const match=p=>!q||[p.nom,p.cabinet,p.tel,p.codeClient,p.notes].join(' ').toLowerCase().includes(q);
+
+  const enCours=state.filter(p=>!['client','perdu','form_annulee'].includes(p.stage)).length;
+  const numEnvoyes=state.filter(p=>['numero_envoye','noshow_numero'].includes(p.stage)).length;
+  const enEssai=state.filter(p=>p.stage==='essai').length;
+  const prio=priorities();
+  document.getElementById('headerStats').innerHTML=
+    `<span class="stat-chip">${enCours} signé${enCours>1?'s':''} en cours</span>`+
+    `<span class="stat-chip">${numEnvoyes} numéro${numEnvoyes>1?'s':''} envoyé${numEnvoyes>1?'s':''}</span>`+
+    `<span class="stat-chip">${enEssai} essai${enEssai>1?'s':''} en cours (adoption)</span>`+
+    (prio.length?`<span class="stat-chip alert">${prio.length} urgence${prio.length>1?'s':''}</span>`:'');
+
+  const pb=document.getElementById('prioBlock');
+  const shown=prio.filter(it=>match(it.p));
+  pb.hidden=shown.length===0;
+  document.getElementById('prioCount').textContent=shown.length;
+  document.getElementById('prioList').innerHTML=shown.map(it=>{
+    const p=it.p;
+    return `<div class="prio-item">
+      <span class="prio-reason ${it.cls}">${it.reason}</span>
+      <span class="prio-name" data-edit="${p.id}">${esc(p.nom)}${p.cabinet?' · '+esc(p.cabinet):''}</span>
+      <span class="prio-detail">${it.detail}${p.tel?' · 📞 '+esc(p.tel):''}</span>
+      <span class="prio-actions">
+        ${p.lien?`<a class="prio-fiche" href="${esc(p.lien)}" target="_blank" rel="noopener">📞 clique ici ↗</a>`:''}
+        <button class="btn-sm btn-relance" data-relance="${p.id}">Relancé ✓</button>
+        ${stageById(p.stage).next?`<button class="btn-sm btn-next" data-next="${p.id}">${stageById(p.stage).nextLabel}</button>`:''}
+      </span>
+    </div>`;
+  }).join('');
+
+  const board=document.getElementById('board');
+  document.getElementById('emptyBoard').hidden=state.length>0;
+  board.innerHTML=STAGES.map(s=>{
+    const cards=state.filter(p=>p.stage===s.id&&match(p));
+    return `<div class="col ${s.terminal?'terminal':''} ${s.noshowCol?'noshow-col':''}">
+      <div class="col-head"><h3>${s.label}</h3><span class="n">${cards.length}</span></div>
+      ${cards.map(cardHTML).join('')||''}
+    </div>`;
+  }).join('');
+}
+
+function cardHTML(p){
+  const s=stageById(p.stage);
+  const left=trialDayLeft(p);
+  const due=relanceDue(p);
+  const stale=signeStale(p);
+  // rouge : relance attendue / sans réponse — vert : relancé, en attente de la suite
+  const isRed=(s.noshowCol&&(due||!p.lastContact))||numeroStale(p)||stale;
+  const isOk=!isRed&&!due&&!s.terminal&&!!p.lastContact;
+  const badges=[];
+  if(isOk) badges.push(`<span class="badge b-ok">✓ Relancé le ${fmtD(p.lastContact)}</span>`);
+  if(stale) badges.push(`<span class="badge b-noshow">Signé depuis ${daysDiff(today(),parseD(p.dateSignature))} j ⚠️</span>`);
+  if(rdvPassed(p)&&p.stage==='signe') badges.push('<span class="badge b-noshow">RDV passé ?</span>');
+  const nDays=numeroDays(p);
+  if(nDays!==null){
+    badges.push(`<span class="badge b-trial">Numéro envoyé il y a ${nDays} j</span>`);
+    if(numeroStale(p)) badges.push('<span class="badge b-noshow">Sans réponse · à relancer</span>');
+  }
+  if(left!==null){
+    const el=trialElapsed(p);
+    if(left<=0) badges.push(`<span class="badge b-trial ending">Essai fini · ${el} j écoulés</span>`);
+    else badges.push(`<span class="badge b-trial ${left<=2?'ending':''}">Essai · jour ${el} / ${TRIAL_DAYS}${left<=2?' ⏰':''}</span>`);
+  }
+  if(p.fraisConfig!=null&&p.fraisConfig!=='') badges.push(`<span class="badge b-trial">Config ${p.fraisConfig} €</span>`);
+  if(p.nextRelance&&!s.terminal) badges.push(`<span class="badge b-relance">${due?'⏰ Relance due':'Relance '+fmtD(p.nextRelance)}</span>`);
+
+  const showRdv=['signe','noshow_rdv'].includes(p.stage)&&p.rdvConfig;
+  return `<div class="card ${isRed?'is-noshow':''} ${!isRed&&due?'is-due':''} ${isOk?'is-ok':''}">
+    <div class="card-top">
+      <div>
+        <div class="card-name" data-edit="${p.id}">${esc(p.nom)}</div>
+        <div class="card-sub">${esc(p.cabinet||'')}${p.tel?(p.cabinet?' · ':'')+esc(p.tel):''}${p.codeClient?' · '+esc(p.codeClient):''}</div>
+      </div>
+      <span>${p.lien?`<a class="fiche-btn" href="${esc(p.lien)}" target="_blank" rel="noopener" title="Ouvrir la fiche HubSpot">↗</a>`:''}<button class="menu-btn" data-edit="${p.id}" title="Modifier" aria-label="Modifier">✎</button></span>
+    </div>
+    ${badges.length?`<div class="badges">${badges.join('')}</div>`:''}
+    <div class="card-actions">
+      ${s.next?`<button class="btn-sm btn-next" data-next="${p.id}">${s.nextLabel}</button>`:''}
+      ${!s.terminal?`<button class="btn-sm btn-relance" data-relance="${p.id}" title="Marquer relancé aujourd'hui">Relancé ✓</button>`:''}
+      ${s.noshowTo?`<button class="btn-sm btn-noshow" data-noshow="${p.id}">No-show →</button>`:''}
+      ${!s.terminal?`<button class="btn-sm btn-ghost" data-lost="${p.id}" title="Marquer perdu">✕</button>`:''}
+    </div>
+    ${p.lien&&(isRed||due)?`<div class="card-link">📞 À relancer — <a href="${esc(p.lien)}" target="_blank" rel="noopener">clique ici ↗</a></div>`:''}
+    ${showRdv?`<div class="card-rdv">📅 RDV config prévu le ${fmtDT(p.rdvConfig)}${rdvPassed(p)?' (passé)':''}</div>`:''}
+    ${p.stage==='essai'?chkHTML(p):''}
+  </div>`;
+}
+
+function chkHTML(p){
+  const elj=trialElapsed(p)??0;
+  return `<div class="chk-list">`+RELANCES_ESSAI.map(it=>{
+    const done=!!(p.relancesEssai&&p.relancesEssai[it.k]);
+    const due=!done&&elj>=it.j;
+    return `<div class="chk-row"><label class="chk ${done?'done':''} ${due?'due':''}"><input type="checkbox" data-check="${p.id}:${it.k}" ${done?'checked':''}> J+${it.j} · ${it.label}${due?' ⏰':''}</label>${due&&p.lien?`<a href="${esc(p.lien)}" target="_blank" rel="noopener">clique ici ↗</a>`:''}</div>`;
+  }).join('')+`</div>`;
+}
+
+const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+/* ---------- Actions ---------- */
+function log(p,msg){ (p.history=p.history||[]).unshift({d:isoToday(),msg}); }
+
+async function nextStage(id){
+  const p=state.find(x=>x.id===id); if(!p) return;
+  const s=stageById(p.stage); if(!s.next) return;
+  const from=p.stage;
+  p.stage=s.next;
+  if(s.next==='numero_envoye'){
+    if(!p.numeroSent||from==='signe'||from==='noshow_rdv') p.numeroSent=isoToday();
+    p.nextRelance=addDays(isoToday(),2);
+    log(p,'Numéro IA envoyé — relance prévue à J+2 sans réponse');
+  }
+  else if(s.next==='essai'){
+    const inp=prompt('Depuis quelle date '+p.nom+' est-il en essai ?\n(AAAA-MM-JJ — laisse la date du jour si ça démarre aujourd\u2019hui)',isoToday());
+    const d=inp&&parseD(inp.trim())?inp.trim():isoToday();
+    p.trialStart=d;
+    p.relancesEssai=p.relancesEssai||{};
+    p.nextRelance='';
+    log(p,'Essai démarré le '+fmtD(d)+' — relances J+3, J+7 et J+10 activées');
+  }
+  else if(s.next==='client'){ p.nextRelance=''; log(p,'Converti client 🎉'); }
+  else if(s.next==='form_annulee'){ p.nextRelance=addDays(isoToday(),7); log(p,'Form annulée — recontact prévu sous 7 j'); }
+  else if(s.next==='signe'){ p.dateSignature=isoToday(); p.nextRelance=addDays(isoToday(),1); p.trialStart=''; p.numeroSent=''; log(p,'Re-signé 🎉'); }
+  else log(p,'Passé à l\u2019étape « '+stageById(s.next).label+' »');
+  await saveState(); render();
+  toast(p.nom+' → '+stageById(p.stage).label);
+}
+
+async function markNoShow(id){
+  const p=state.find(x=>x.id===id); if(!p) return;
+  const s=stageById(p.stage); if(!s.noshowTo) return;
+  p.stage=s.noshowTo;
+  p.nextRelance=isoToday();
+  log(p,'No-show — basculé en « '+stageById(s.noshowTo).label+' », à relancer');
+  await saveState(); render();
+  toast(p.nom+' → '+stageById(p.stage).label);
+}
+
+async function markRelance(id){
+  const p=state.find(x=>x.id===id); if(!p) return;
+  p.lastContact=isoToday();
+  const def=addDays(isoToday(),2);
+  const inp=prompt('Relance notée pour '+p.nom+' ✓\nProchaine relance le (AAAA-MM-JJ) :',def);
+  p.nextRelance=inp===null?def:(inp.trim()||'');
+  log(p,'Relancé'+(p.nextRelance?' — prochaine relance le '+fmtD(p.nextRelance):''));
+  await saveState(); render();
+  toast('Relance enregistrée');
+}
+
+async function markLost(id){
+  const p=state.find(x=>x.id===id); if(!p) return;
+  if(!confirm('Marquer '+p.nom+' comme perdu ?')) return;
+  p.stage='perdu'; p.nextRelance='';
+  log(p,'Marqué perdu');
+  await saveState(); render();
+}
+
+/* ---------- Modale édition ---------- */
+const dlg=document.getElementById('dlgEdit');
+const form=document.getElementById('formEdit');
+document.getElementById('selStage').innerHTML=STAGES.map(s=>`<option value="${s.id}">${s.label}</option>`).join('');
+
+function openEdit(id){
+  editingId=id;
+  const p=id?state.find(x=>x.id===id):null;
+  document.getElementById('dlgTitle').textContent=p?('Modifier — '+p.nom):'Nouvelle signature';
+  document.getElementById('btnDelete').hidden=!p;
+  form.nom.value=p?.nom||''; form.cabinet.value=p?.cabinet||'';
+  form.tel.value=p?.tel||''; form.codeClient.value=p?.codeClient||'';
+  form.dateSignature.value=p?.dateSignature||isoToday();
+  form.rdvConfig.value=p?.rdvConfig||'';
+  form.stage.value=p?.stage||'signe';
+  form.fraisConfig.value=p?.fraisConfig??'';
+  form.numeroSent.value=p?.numeroSent||'';
+  form.trialStart.value=p?.trialStart||'';
+  form.lien.value=p?.lien||'';
+  form.notes.value=p?.notes||'';
+  const hb=document.getElementById('histBlock');
+  hb.hidden=!(p&&p.history&&p.history.length);
+  if(p&&p.history) document.getElementById('histList').innerHTML=p.history.map(h=>`<li><b>${fmtD(h.d)}</b> — ${esc(h.msg)}</li>`).join('');
+  dlg.showModal();
+}
+
+form.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const data={
+    nom:form.nom.value.trim(), cabinet:form.cabinet.value.trim(),
+    tel:form.tel.value.trim(), codeClient:form.codeClient.value.trim(),
+    dateSignature:form.dateSignature.value, rdvConfig:form.rdvConfig.value,
+    stage:form.stage.value, fraisConfig:form.fraisConfig.value,
+    numeroSent:form.numeroSent.value, trialStart:form.trialStart.value,
+    lien:form.lien.value.trim(),
+    notes:form.notes.value.trim()
+  };
+  if(!data.nom) return;
+  if(editingId){
+    const p=state.find(x=>x.id===editingId);
+    const oldStage=p.stage;
+    Object.assign(p,data);
+    if(oldStage!==p.stage) log(p,'Étape modifiée → '+stageById(p.stage).label);
+  } else {
+    const p={id:'p'+Date.now()+Math.random().toString(36).slice(2,6),history:[],...data};
+    log(p,'Signature ajoutée');
+    state.push(p);
+  }
+  const saved=state.find(x=>x.id===(editingId||state[state.length-1].id));
+  if(saved){
+    if(saved.stage==='essai'&&!saved.trialStart) saved.trialStart=isoToday();
+    if(['numero_envoye','noshow_numero'].includes(saved.stage)&&!saved.numeroSent) saved.numeroSent=isoToday();
+  }
+  dlg.close(); await saveState(); render();
+  toast('Enregistré ✓');
+});
+
+document.getElementById('btnCancel').onclick=()=>dlg.close();
+document.getElementById('btnDelete').onclick=async()=>{
+  const p=state.find(x=>x.id===editingId);
+  if(p&&confirm('Supprimer définitivement '+p.nom+' ?')){
+    state=state.filter(x=>x.id!==editingId);
+    dlg.close(); await saveState(); render();
+    toast('Supprimé');
+  }
+};
+
+/* ---------- Import CSV ---------- */
+const dlgImp=document.getElementById('dlgImport');
+document.getElementById('btnImport').onclick=()=>{document.getElementById('importText').value='';dlgImp.showModal();};
+document.getElementById('btnImportCancel').onclick=()=>dlgImp.close();
+document.getElementById('btnImportGo').onclick=async()=>{
+  const lines=document.getElementById('importText').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  let n=0;
+  for(const line of lines){
+    const parts=line.split(/[;,\t]/).map(x=>x.trim());
+    if(!parts[0]) continue;
+    const p={id:'p'+Date.now()+Math.random().toString(36).slice(2,6),
+      nom:parts[0],cabinet:parts[1]||'',tel:parts[2]||'',codeClient:parts[3]||'',
+      dateSignature:isoToday(),rdvConfig:'',stage:'signe',
+      nextRelance:addDays(isoToday(),1),numeroSent:'',trialStart:'',notes:'',history:[]};
+    log(p,'Importé (signature)');
+    state.push(p); n++;
+  }
+  dlgImp.close(); await saveState(); render();
+  toast(n+' praticien'+(n>1?'s':'')+' importé'+(n>1?'s':''));
+};
+
+/* ---------- Délégation d'événements ---------- */
+document.body.addEventListener('click',e=>{
+  const t=e.target.closest('[data-next],[data-relance],[data-noshow],[data-edit],[data-lost]');
+  if(!t) return;
+  if(t.dataset.next) nextStage(t.dataset.next);
+  else if(t.dataset.relance) markRelance(t.dataset.relance);
+  else if(t.dataset.noshow) markNoShow(t.dataset.noshow);
+  else if(t.dataset.lost) markLost(t.dataset.lost);
+  else if(t.dataset.edit) openEdit(t.dataset.edit);
+});
+document.body.addEventListener('change',async e=>{
+  const t=e.target.closest('input[data-check]');
+  if(!t) return;
+  const [id,k]=t.dataset.check.split(':');
+  const p=state.find(x=>x.id===id); if(!p) return;
+  p.relancesEssai=p.relancesEssai||{};
+  p.relancesEssai[k]=t.checked;
+  const it=RELANCES_ESSAI.find(r=>r.k===k);
+  p.lastContact=t.checked?isoToday():p.lastContact;
+  log(p,(t.checked?'✓ ':'↺ ')+it.label+' (J+'+it.j+')'+(t.checked?' faite':' décochée'));
+  await saveState(); render();
+});
+document.getElementById('btnAdd').onclick=()=>openEdit(null);
+document.getElementById('search').addEventListener('input',render);
+document.getElementById('btnExportJson').onclick=exportData;
+document.getElementById('btnImportJson').onclick=()=>document.getElementById('fileImportJson').click();
+document.getElementById('fileImportJson').addEventListener('change',e=>{
+  if(e.target.files[0]) importData(e.target.files[0]);
+  e.target.value='';
+});
+
+/* ---------- Toast ---------- */
+let toastTimer;
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.classList.remove('show'),2200);
+}
+
+/* ---------- Init ---------- */
+(async()=>{ await loadState(); render(); })();
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
