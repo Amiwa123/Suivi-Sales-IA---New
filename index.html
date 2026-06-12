@@ -467,6 +467,10 @@ function cardHTML(p){
     if(left<=0) badges.push(`<span class="badge b-trial ending">Essai fini · ${el} j écoulés</span>`);
     else badges.push(`<span class="badge b-trial ${left<=2?'ending':''}">Essai · jour ${el+1} / ${TRIAL_DAYS}${left<=2?' ⏰':''}</span>`);
   }
+  if(p.stage==='adoption'&&p.obOwner){
+    const ob=(cfg.owners||[]).find(o=>String(o.id)===String(p.obOwner));
+    badges.push(`<span class="badge b-rdv">OB : ${esc(ob?ob.name:('#'+p.obOwner))}</span>`);
+  }
   if(p.fraisConfig!=null&&p.fraisConfig!=='') badges.push(`<span class="badge b-trial">Config ${p.fraisConfig} €</span>`);
   if(p.nextRelance&&!s.terminal) badges.push(`<span class="badge b-relance">${due?'⏰ Relance due':'Relance '+fmtD(p.nextRelance)}</span>`);
 
@@ -621,14 +625,21 @@ async function syncHubspot(){
       let p=state.find(x=>x.hsId===c.id);
       if(!p){
         p={id:'p'+Date.now()+Math.random().toString(36).slice(2,6),hsId:c.id,owner:cfg.ownerId,nom,cabinet:'',tel:c.phone||'',codeClient:'',
-           dateSignature:(c.createdate||'').slice(0,10)||isoToday(),rdvConfig:'',stage:mapped||'essai_ia',
-           fraisConfig:'',nextRelance:'',numeroSent:(c.dateNumero||'').slice(0,10),trialStart:'',lien,notes:'',hsStatut:c.statut,history:[]};
+           dateSignature:(c.dateSignatureIA||'').slice(0,10)||(c.createdate||'').slice(0,10)||isoToday(),
+           rdvConfig:(c.rdvLancement||'').slice(0,16),stage:mapped||'essai_ia',
+           fraisConfig:'',nextRelance:'',numeroSent:(c.dateNumero||'').slice(0,10),
+           trialStart:(c.dateAdoption||'').slice(0,10),obOwner:c.obOwner||'',
+           lien,notes:'',hsStatut:c.statut,history:[]};
         if(['numero','pret'].includes(p.stage)&&!p.numeroSent) p.numeroSent=isoToday();
         log(p,'Importé depuis HubSpot ('+(c.statut||'sans statut')+')');
         state.push(p); added++;
       } else {
         p.nom=nom; if(c.phone) p.tel=c.phone; p.lien=lien; p.owner=p.owner||cfg.ownerId;
         if(c.dateNumero&&!p.numeroSent) p.numeroSent=c.dateNumero.slice(0,10);
+        if(c.dateSignatureIA) p.dateSignature=c.dateSignatureIA.slice(0,10);
+        if(c.dateAdoption) p.trialStart=c.dateAdoption.slice(0,10);
+        if(c.rdvLancement) p.rdvConfig=c.rdvLancement.slice(0,16);
+        if(c.obOwner) p.obOwner=c.obOwner;
         p.hsStatut=c.statut;
         if(mapped&&mapped!==p.stage){
           p.stage=mapped;
