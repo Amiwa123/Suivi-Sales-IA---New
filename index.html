@@ -250,16 +250,29 @@ const STAGES=[
   {id:'adoption',     hs:'Adoption utilisation',    label:'Adoption utilisation',      next:'abo',           nextLabel:'Abonnement ✓'},
   {id:'standby',      hs:'Sandby',                  label:'Standby · à relancer',      next:'rdv_programme', nextLabel:'Réactivé →', standbyCol:true},
   {id:'abo',          hs:'Adoption + SEPA',         label:'Abonnement en cours ✓',     next:'lost_abo',      nextLabel:'Lost abonnement →', terminal:true},
-  {id:'annulation',   hs:'Annulation',              label:'Annulation · à recontacter',next:'essai_ia',      nextLabel:'Re-signé →'},
+  {id:'annul_recontact', hs:null,                  label:'Annulation · à recontacter',next:'essai_ia',      nextLabel:'Re-signé →'},
+  {id:'a_confirmer',  hs:'À confirmer',             label:'À confirmer',               next:'essai_ia',      nextLabel:'Confirmé · Essai IA →'},
   {id:'lost_essai',   hs:'Lost suite essai',        label:'Lost suite essai',          next:null, terminal:true},
   {id:'lost_abo',     hs:'Lost suite abonnement',   label:'Lost suite abonnement',     next:null, terminal:true},
-  {id:'a_confirmer',  hs:'À confirmer',             label:'À confirmer',               next:'essai_ia',      nextLabel:'Confirmé · Essai IA →'},
+  {id:'perte_interet',hs:null,                      label:"Perte d'intérêt",           next:null, terminal:true},
 ];
+// Statut HubSpot "Annulation" : aiguillage spécial (voir resolveStage), donc pas de mapping direct.
+const PERTE_INTERET_QUALIF="Perte d'intérêt";
 const stageById=id=>STAGES.find(s=>s.id===id)||STAGES[0];
 const STATUT_TO_STAGE={}; STAGES.forEach(s=>{ if(s.hs) STATUT_TO_STAGE[s.hs]=s.id; });
+// normalise apostrophes droites/typographiques pour comparer les qualifications
+const normQualif=s=>(s||'').replace(/['\u2019]/g,'\u2019').trim().toLowerCase();
+const isPerteInteret=q=>normQualif(q)===normQualif(PERTE_INTERET_QUALIF);
+// Résout la colonne à partir du statut Essai IA ET de la qualification lead IA
+function resolveStage(statut, qualif){
+  if(statut==='Annulation'){
+    return isPerteInteret(qualif)?'perte_interet':'annul_recontact';
+  }
+  return STATUT_TO_STAGE[statut]||null;
+}
 // migration depuis les anciennes versions du pipeline
 const STAGE_MIGRATION={signe:'essai_ia',noshow_rdv:'no_show',numero_envoye:'numero',noshow_numero:'numero',
-  essai:'adoption',client:'abo',perdu:'lost_essai',form_annulee:'annulation',
+  essai:'adoption',client:'abo',perdu:'lost_essai',form_annulee:'annul_recontact',annulation:'annul_recontact',
   rdv_fixe:'rdv_programme',au_chaud:'no_show',config_realise:'config',essai_fini:'adoption'};
 
 let state=[];
@@ -429,7 +442,6 @@ function render(){
       <span class="prio-detail">${it.detail}${p.tel?' · 📞 '+esc(p.tel):''}</span>
       <span class="prio-actions">
         ${p.lien?`<a class="prio-fiche" href="${esc(p.lien)}" target="_blank" rel="noopener">📞 clique ici ↗</a>`:''}
-        <button class="btn-sm btn-relance" data-relance="${p.id}">Relancé ✓</button>
         ${stageById(p.stage).next?`<button class="btn-sm btn-next" data-next="${p.id}">${stageById(p.stage).nextLabel}</button>`:''}
       </span>
     </div>`;
@@ -486,7 +498,6 @@ function cardHTML(p){
     ${badges.length?`<div class="badges">${badges.join('')}</div>`:''}
     <div class="card-actions">
       ${s.next?`<button class="btn-sm btn-next" data-next="${p.id}">${s.nextLabel}</button>`:''}
-      ${!s.terminal?`<button class="btn-sm btn-relance" data-relance="${p.id}" title="Marquer relancé aujourd'hui">Relancé ✓</button>`:''}
       ${s.noshowTo?`<button class="btn-sm btn-noshow" data-noshow="${p.id}">No-show →</button>`:''}
       ${!s.terminal&&!s.standbyCol?`<button class="btn-sm btn-ghost" data-standby="${p.id}" title="Mettre en standby">⏸</button>`:''}
       ${!s.terminal?`<button class="btn-sm btn-ghost" data-lost="${p.id}" title="Marquer lost">✕</button>`:''}
@@ -538,7 +549,6 @@ async function nextStage(id){
     log(p,'Adoption démarrée le '+fmtD(d)+' — relances J+3, J+7 et J+10 activées');
   }
   else if(s.next==='abo'){ p.nextRelance=''; log(p,'Abonnement signé 🎉'); }
-  else if(s.next==='annulation'){ p.nextRelance=addDays(isoToday(),7); log(p,'Annulation — recontact prévu sous 7 j'); }
   else if(s.next==='essai_ia'){ p.dateSignature=isoToday(); p.nextRelance=addDays(isoToday(),1); p.trialStart=''; p.numeroSent=''; log(p,'(Re)signé · Essai IA 🎉'); }
   else log(p,'Passé à l\u2019étape « '+stageById(s.next).label+' »');
   await saveState(); render();
@@ -621,7 +631,7 @@ async function syncHubspot(){
     for(const c of (j.contacts||[])){
       const nom=((c.firstname||'')+' '+(c.lastname||'')).trim()||('Contact '+c.id);
       const lien='https://app.hubspot.com/contacts/'+HS_PORTAL+'/record/0-1/'+c.id;
-      const mapped=STATUT_TO_STAGE[c.statut];
+      const mapped=resolveStage(c.statut, c.qualif);
       let p=state.find(x=>x.hsId===c.id);
       if(!p){
         p={id:'p'+Date.now()+Math.random().toString(36).slice(2,6),hsId:c.id,owner:cfg.ownerId,nom,cabinet:'',tel:c.phone||'',codeClient:'',
@@ -748,10 +758,9 @@ document.getElementById('btnImportGo').onclick=async()=>{
 
 /* ---------- Événements ---------- */
 document.body.addEventListener('click',e=>{
-  const t=e.target.closest('[data-next],[data-relance],[data-noshow],[data-edit],[data-lost],[data-standby]');
+  const t=e.target.closest('[data-next],[data-noshow],[data-edit],[data-lost],[data-standby]');
   if(!t) return;
   if(t.dataset.next) nextStage(t.dataset.next);
-  else if(t.dataset.relance) markRelance(t.dataset.relance);
   else if(t.dataset.noshow) markNoShow(t.dataset.noshow);
   else if(t.dataset.standby) markStandby(t.dataset.standby);
   else if(t.dataset.lost) markLost(t.dataset.lost);
