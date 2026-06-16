@@ -466,7 +466,6 @@ function cardHTML(p){
   const isRed=(s.noshowCol&&(due||!p.lastContact))||(p.stage==='standby'&&due)||numeroStale(p)||stale;
   const isOk=!isRed&&!due&&!s.terminal&&!!p.lastContact;
   const badges=[];
-  if(isOk) badges.push(`<span class="badge b-ok">✓ Relancé le ${fmtD(p.lastContact)}</span>`);
   if(stale) badges.push(`<span class="badge b-noshow">Signé depuis ${daysDiff(today(),parseD(p.dateSignature))} j ⚠️</span>`);
   if(rdvPassed(p)&&p.stage==='rdv_programme') badges.push('<span class="badge b-noshow">RDV passé ?</span>');
   const nDays=numeroDays(p);
@@ -573,17 +572,6 @@ async function markStandby(id){
   log(p,'Mis en standby — relance prévue le '+fmtD(p.nextRelance));
   await saveState(); render();
   toast(p.nom+' → Standby');
-}
-
-async function markRelance(id){
-  const p=state.find(x=>x.id===id); if(!p) return;
-  p.lastContact=isoToday();
-  const def=addDays(isoToday(),2);
-  const inp=prompt('Relance notée pour '+p.nom+' ✓\nProchaine relance le (AAAA-MM-JJ) :',def);
-  p.nextRelance=inp===null?def:(inp.trim()||'');
-  log(p,'Relancé'+(p.nextRelance?' — prochaine relance le '+fmtD(p.nextRelance):''));
-  await saveState(); render();
-  toast('Relance enregistrée');
 }
 
 async function markLost(id){
