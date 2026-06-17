@@ -61,6 +61,10 @@
   .prio-trash:hover{background:var(--bg)}
   .prio-restore{margin-left:auto;background:var(--surface);border:1px solid var(--line);color:var(--ink-soft);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer}
   .prio-restore:hover{filter:brightness(.97)}
+  .prio-item.is-hidden{opacity:.55}
+  .prio-item.is-hidden .prio-reason{filter:grayscale(.4)}
+  .prio-unhide{background:var(--teal-soft);border:1px solid var(--teal-soft);color:var(--teal-deep);font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:8px;cursor:pointer}
+  .prio-unhide:hover{filter:brightness(.97)}
   .prio h2{justify-content:flex-start}
 
   .board{display:flex;gap:14px;overflow-x:auto;padding-bottom:14px;align-items:flex-start}
@@ -293,6 +297,7 @@ let state=[];
 let editingId=null;
 let cfg={workerUrl:'',ownerId:'',ownerName:'',owners:[]};
 let hiddenPrio={}; // { "dossierId|reason": true } -> priorités masquées à la main
+let showHidden=false; // interrupteur : afficher ou non les priorités masquées
 
 /* ---------- Stockage (adaptatif : Claude ou fichier autonome) ---------- */
 const hasClaudeStorage=typeof window.storage!=='undefined'&&window.storage&&typeof window.storage.get==='function';
@@ -446,23 +451,31 @@ function render(){
 
   const pb=document.getElementById('prioBlock');
   const matched=prio.filter(it=>match(it.p));
-  const shown=matched.filter(it=>!hiddenPrio[prioKey(it.p,it.reason)]);
-  const hiddenN=matched.length-shown.length;
+  const visibles=matched.filter(it=>!hiddenPrio[prioKey(it.p,it.reason)]);
+  const masquees=matched.filter(it=>hiddenPrio[prioKey(it.p,it.reason)]);
+  const hiddenN=masquees.length;
+  // liste affichée : les visibles toujours ; les masquées seulement si l'interrupteur est ON
+  const shown = showHidden ? matched : visibles;
   const restoreBtn=document.getElementById('btnRestorePrio');
   restoreBtn.hidden=hiddenN===0;
-  document.getElementById('hiddenCount').textContent=hiddenN;
+  restoreBtn.innerHTML = showHidden
+    ? '🙈 Re-masquer les masquées (<span id="hiddenCount">'+hiddenN+'</span>)'
+    : '↩︎ Réafficher les masquées (<span id="hiddenCount">'+hiddenN+'</span>)';
   pb.hidden=shown.length===0&&hiddenN===0;
-  document.getElementById('prioCount').textContent=shown.length;
+  document.getElementById('prioCount').textContent=visibles.length;
   document.getElementById('prioList').innerHTML=shown.map(it=>{
     const p=it.p;
-    return `<div class="prio-item">
+    const isHidden=!!hiddenPrio[prioKey(p,it.reason)];
+    return `<div class="prio-item ${isHidden?'is-hidden':''}">
       <span class="prio-reason ${it.cls}">${it.reason}</span>
       <span class="prio-name" data-edit="${p.id}">${esc(p.nom)}${p.cabinet?' · '+esc(p.cabinet):''}</span>
       <span class="prio-detail">${it.detail}${p.tel?' · 📞 '+esc(p.tel):''}</span>
       <span class="prio-actions">
         ${p.lien?`<a class="prio-fiche" href="${esc(p.lien)}" target="_blank" rel="noopener">📞 clique ici ↗</a>`:''}
         ${stageById(p.stage).next?`<button class="btn-sm btn-next" data-next="${p.id}">${stageById(p.stage).nextLabel}</button>`:''}
-        <button class="prio-trash" data-hideprio="${esc(prioKey(p,it.reason))}" title="Masquer cette priorité">Masquer</button>
+        ${isHidden
+          ? `<button class="prio-unhide" data-unhideprio="${esc(prioKey(p,it.reason))}" title="Réafficher cette priorité">Annuler</button>`
+          : `<button class="prio-trash" data-hideprio="${esc(prioKey(p,it.reason))}" title="Masquer cette priorité">Masquer</button>`}
       </span>
     </div>`;
   }).join('');
@@ -789,10 +802,12 @@ document.body.addEventListener('change',async e=>{
 document.body.addEventListener('click',async e=>{
   const hideBtn=e.target.closest('[data-hideprio]');
   if(hideBtn){ hiddenPrio[hideBtn.dataset.hideprio]=true; await saveHidden(); render(); return; }
+  const unhideBtn=e.target.closest('[data-unhideprio]');
+  if(unhideBtn){ delete hiddenPrio[unhideBtn.dataset.unhideprio]; await saveHidden(); render(); return; }
 });
-document.getElementById('btnRestorePrio').onclick=async()=>{
-  hiddenPrio={}; await saveHidden(); render();
-  toast('Priorités masquées réaffichées');
+document.getElementById('btnRestorePrio').onclick=()=>{
+  showHidden=!showHidden; // interrupteur : afficher / re-cacher les masquées
+  render();
 };
 document.getElementById('btnAdd').onclick=()=>openEdit(null);
 document.getElementById('search').addEventListener('input',render);
