@@ -85,6 +85,7 @@
   .b-trial{background:var(--teal-soft);color:var(--teal-deep)}
   .b-trial.ending{background:var(--urgent-soft);color:var(--urgent)}
   .b-ok{background:var(--ok-soft);color:var(--ok)}
+  .b-act{background:#EEF2F1;color:var(--ink-soft)}
   .card-actions{display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}
   .btn-next{background:var(--teal);color:#fff;flex:1;min-width:0}
   .btn-relance{background:var(--warn-soft);color:var(--warn)}
@@ -240,6 +241,7 @@ const RELANCES_ESSAI=[
 /* ---------- Frise chronologique = Statut Essai IA (HubSpot) ----------
    hs = valeur interne HubSpot du champ qualification_du_lead_essai_gratuit_ia */
 const STAGES=[
+  {id:'signe_sans_iban', hs:null,                   label:'Essai signé (sans IBAN)',   next:'essai_ia',      nextLabel:'IBAN reçu · Essai IA →'},
   {id:'essai_ia',     hs:'Essai CB',                label:'Essai IA · signé 15 j',     next:'rdv_programme', nextLabel:'RDV programmé →'},
   {id:'rdv_programme',hs:'RDV programmé',           label:'RDV programmé',             next:'config',        nextLabel:'Config en cours →', noshowTo:'no_show'},
   {id:'no_show',      hs:'No show',                 label:'NO SHOW',                   next:'rdv_programme', nextLabel:'RDV refixé →', noshowCol:true},
@@ -264,7 +266,12 @@ const STATUT_TO_STAGE={}; STAGES.forEach(s=>{ if(s.hs) STATUT_TO_STAGE[s.hs]=s.i
 const normQualif=s=>(s||'').replace(/['\u2019]/g,'\u2019').trim().toLowerCase();
 const isPerteInteret=q=>normQualif(q)===normQualif(PERTE_INTERET_QUALIF);
 // Résout la colonne à partir du statut Essai IA ET de la qualification lead IA
-function resolveStage(statut, qualif){
+function resolveStage(statut, qualif, onboardingStep1){
+  // Dossier signé OK pour essai mais sans IBAN : Intérêt IA + onboarding étape 1 fait,
+  // et pas encore de statut Essai IA renseigné.
+  if(!statut && normQualif(qualif)===normQualif('Intérêt IA') && (onboardingStep1===true||onboardingStep1==='true')){
+    return 'signe_sans_iban';
+  }
   if(statut==='Annulation'){
     return isPerteInteret(qualif)?'perte_interet':'annul_recontact';
   }
@@ -296,7 +303,10 @@ async function loadState(){
     // récupérer les données de l'ancienne version si présentes
     try{ const old=await storeGet('dentalcall:praticiens:v1'); if(old) state=JSON.parse(old); }catch(e){}
   }
-  for(const p of state){ if(STAGE_MIGRATION[p.stage]) p.stage=STAGE_MIGRATION[p.stage]; }
+  for(const p of state){
+    if(STAGE_MIGRATION[p.stage]) p.stage=STAGE_MIGRATION[p.stage];
+    if(p.nextRelance) delete p.nextRelance; // purge ancienne date de relance interne
+  }
 }
 async function saveState(){
   try{ await storeSet(KEY, JSON.stringify(state)); }
@@ -373,10 +383,7 @@ function signeStale(p){
 function rdvPassed(p){
   return ['rdv_programme','essai_ia'].includes(p.stage) && p.rdvConfig && parseD(p.rdvConfig)<new Date();
 }
-function relanceDue(p){
-  if(!p.nextRelance) return false;
-  return parseD(p.nextRelance)<=today();
-}
+function relanceDue(p){ return false; } // mécanique de relance interne supprimée (relances gérées dans HubSpot)
 const ownerOk=p=>!cfg.ownerId||!p.owner||p.owner===cfg.ownerId;
 
 /* ---------- Priorités ---------- */
@@ -386,8 +393,8 @@ function priorities(){
     if(!ownerOk(p)) continue;
     const s=stageById(p.stage);
     if(s.terminal||['lost_essai','lost_abo'].includes(p.stage)) continue;
-    if(p.stage==='no_show'&&(relanceDue(p)||!p.lastContact)) list.push({p,score:0,reason:'No-show',cls:'r-noshow',detail:'À recontacter pour refixer le RDV'});
-    if(p.stage==='standby'&&relanceDue(p)) list.push({p,score:0.8,reason:'Standby à relancer',cls:'r-relance',detail:'Dossier en standby'+(p.prevStage?' (venait de « '+stageById(p.prevStage).label+' »)':'')});
+    if(p.stage==='no_show') list.push({p,score:0,reason:'No-show',cls:'r-noshow',detail:'À recontacter pour refixer le RDV'});
+    if(p.stage==='standby') list.push({p,score:0.8,reason:'Standby à relancer',cls:'r-relance',detail:'Dossier en standby'+(p.prevStage?' (venait de « '+stageById(p.prevStage).label+' »)':'')});
     if(signeStale(p)) list.push({p,score:1.2,reason:'Signé depuis +7 j',cls:'r-noshow',detail:'Signé le '+fmtD(p.dateSignature)+(p.rdvConfig?' — RDV prévu le '+fmtDT(p.rdvConfig):' — RDV à programmer')});
     if(rdvPassed(p)&&p.stage==='rdv_programme') list.push({p,score:1.3,reason:'RDV passé',cls:'r-noshow',detail:'RDV config du '+fmtDT(p.rdvConfig)+' — réalisé ou no-show ?'});
     if(numeroStale(p)) list.push({p,score:1.5,reason:'Numéro sans réponse',cls:'r-noshow',detail:'Numéro envoyé il y a '+numeroDays(p)+' j — à relancer'});
@@ -395,10 +402,6 @@ function priorities(){
       const elj=trialElapsed(p);
       const pend=RELANCES_ESSAI.filter(it=>elj>=it.j&&!(p.relancesEssai&&p.relancesEssai[it.k]));
       if(pend.length) list.push({p,score:1.8,reason:pend[0].label+' (J+'+pend[0].j+')',cls:'r-relance',detail:'Jour '+(elj+1)+' d\u2019essai'+(pend.length>1?' \u2014 '+pend.length+' relances en attente':'')});
-    }
-    if(relanceDue(p)&&!['no_show','standby'].includes(p.stage)){
-      const late=daysDiff(today(),parseD(p.nextRelance));
-      list.push({p,score:2,reason:'Relance due',cls:'r-relance',detail:late>0?('En retard de '+late+' j'):'À relancer aujourd\u2019hui'});
     }
     const left=trialDayLeft(p);
     if(left!==null&&left<=2) list.push({p,score:3,reason:left<=0?'Essai fini':'Fin d\u2019essai J-'+left,cls:'r-essai',detail:'En essai depuis '+(trialElapsed(p)+1)+' j — appel de closing'});
@@ -463,7 +466,7 @@ function cardHTML(p){
   const left=trialDayLeft(p);
   const due=relanceDue(p);
   const stale=signeStale(p);
-  const isRed=(s.noshowCol&&(due||!p.lastContact))||(p.stage==='standby'&&due)||numeroStale(p)||stale;
+  const isRed=s.noshowCol||(p.stage==='standby')||numeroStale(p)||stale;
   const isOk=!isRed&&!due&&!s.terminal&&!!p.lastContact;
   const badges=[];
   if(stale) badges.push(`<span class="badge b-noshow">Signé depuis ${daysDiff(today(),parseD(p.dateSignature))} j ⚠️</span>`);
@@ -483,10 +486,10 @@ function cardHTML(p){
     badges.push(`<span class="badge b-rdv">OB : ${esc(ob?ob.name:('#'+p.obOwner))}</span>`);
   }
   if(p.fraisConfig!=null&&p.fraisConfig!=='') badges.push(`<span class="badge b-trial">Config ${p.fraisConfig} €</span>`);
-  if(p.nextRelance&&!s.terminal) badges.push(`<span class="badge b-relance">${due?'⏰ Relance due':'Relance '+fmtD(p.nextRelance)}</span>`);
+  if(p.lastActivity) badges.push(`<span class="badge b-act">Dernière activité ${fmtD(p.lastActivity)}</span>`);
 
   const showRdv=['essai_ia','rdv_programme','no_show'].includes(p.stage)&&p.rdvConfig;
-  return `<div class="card ${isRed?'is-noshow':''} ${!isRed&&due?'is-due':''} ${isOk?'is-ok':''}">
+  return `<div class="card ${isRed?'is-noshow':''} ${isOk?'is-ok':''}">
     <div class="card-top">
       <div>
         <div class="card-name" data-edit="${p.id}">${esc(p.nom)}</div>
@@ -501,7 +504,7 @@ function cardHTML(p){
       ${!s.terminal&&!s.standbyCol?`<button class="btn-sm btn-ghost" data-standby="${p.id}" title="Mettre en standby">⏸</button>`:''}
       ${!s.terminal?`<button class="btn-sm btn-ghost" data-lost="${p.id}" title="Marquer lost">✕</button>`:''}
     </div>
-    ${p.lien&&(isRed||due)?`<div class="card-link">📞 À relancer — <a href="${esc(p.lien)}" target="_blank" rel="noopener">clique ici ↗</a></div>`:''}
+    ${p.lien&&isRed?`<div class="card-link">📞 À relancer — <a href="${esc(p.lien)}" target="_blank" rel="noopener">clique ici ↗</a></div>`:''}
     ${showRdv?`<div class="card-rdv">📅 RDV config prévu le ${fmtDT(p.rdvConfig)}${rdvPassed(p)?' (passé)':''}</div>`:''}
     ${p.stage==='adoption'?chkHTML(p):''}
   </div>`;
@@ -527,7 +530,7 @@ async function nextStage(id){
   const from=p.stage;
   if(from==='standby'){
     const back=(p.prevStage&&p.prevStage!=='standby'&&STAGES.some(x=>x.id===p.prevStage))?p.prevStage:'rdv_programme';
-    p.stage=back; p.nextRelance=addDays(isoToday(),1);
+    p.stage=back;
     log(p,'Réactivé — retour à « '+stageById(back).label+' »');
     await saveState(); render();
     toast(p.nom+' → '+stageById(back).label);
@@ -536,7 +539,6 @@ async function nextStage(id){
   p.stage=s.next;
   if(s.next==='numero'){
     if(!p.numeroSent) p.numeroSent=isoToday();
-    p.nextRelance=addDays(isoToday(),2);
     log(p,'Numéro IA envoyé — relance prévue à J+2 sans réponse');
   }
   else if(s.next==='adoption'){
@@ -544,11 +546,10 @@ async function nextStage(id){
     const d=inp&&parseD(inp.trim())?inp.trim():(p.trialStart||isoToday());
     p.trialStart=d;
     p.relancesEssai=p.relancesEssai||{};
-    p.nextRelance='';
     log(p,'Adoption démarrée le '+fmtD(d)+' — relances J+3, J+7 et J+10 activées');
   }
-  else if(s.next==='abo'){ p.nextRelance=''; log(p,'Abonnement signé 🎉'); }
-  else if(s.next==='essai_ia'){ p.dateSignature=isoToday(); p.nextRelance=addDays(isoToday(),1); p.trialStart=''; p.numeroSent=''; log(p,'(Re)signé · Essai IA 🎉'); }
+  else if(s.next==='abo'){ log(p,'Abonnement signé 🎉'); }
+  else if(s.next==='essai_ia'){ p.dateSignature=isoToday(); p.trialStart=''; p.numeroSent=''; log(p,'(Re)signé · Essai IA 🎉'); }
   else log(p,'Passé à l\u2019étape « '+stageById(s.next).label+' »');
   await saveState(); render();
   toast(p.nom+' → '+stageById(p.stage).label);
@@ -558,7 +559,7 @@ async function markNoShow(id){
   const p=state.find(x=>x.id===id); if(!p) return;
   const s=stageById(p.stage); if(!s.noshowTo) return;
   p.stage=s.noshowTo;
-  p.nextRelance=isoToday();
+  
   log(p,'No-show — à relancer');
   await saveState(); render();
   toast(p.nom+' → NO SHOW');
@@ -568,8 +569,7 @@ async function markStandby(id){
   const p=state.find(x=>x.id===id); if(!p) return;
   p.prevStage=p.stage;
   p.stage='standby';
-  p.nextRelance=addDays(isoToday(),7);
-  log(p,'Mis en standby — relance prévue le '+fmtD(p.nextRelance));
+  log(p,'Mis en standby');
   await saveState(); render();
   toast(p.nom+' → Standby');
 }
@@ -578,7 +578,7 @@ async function markLost(id){
   const p=state.find(x=>x.id===id); if(!p) return;
   const target=p.stage==='abo'?'lost_abo':'lost_essai';
   if(!confirm('Marquer '+p.nom+' comme « '+stageById(target).label+' » ?')) return;
-  p.stage=target; p.nextRelance='';
+  p.stage=target;
   log(p,'Marqué '+stageById(target).label);
   await saveState(); render();
 }
@@ -619,14 +619,15 @@ async function syncHubspot(){
     for(const c of (j.contacts||[])){
       const nom=((c.firstname||'')+' '+(c.lastname||'')).trim()||('Contact '+c.id);
       const lien='https://app.hubspot.com/contacts/'+HS_PORTAL+'/record/0-1/'+c.id;
-      const mapped=resolveStage(c.statut, c.qualif);
+      const mapped=resolveStage(c.statut, c.qualif, c.onboardingStep1);
       let p=state.find(x=>x.hsId===c.id);
       if(!p){
         p={id:'p'+Date.now()+Math.random().toString(36).slice(2,6),hsId:c.id,owner:cfg.ownerId,nom,cabinet:'',tel:c.phone||'',codeClient:'',
            dateSignature:(c.dateSignatureIA||'').slice(0,10)||(c.createdate||'').slice(0,10)||isoToday(),
            rdvConfig:(c.rdvLancement||'').slice(0,16),stage:mapped||'essai_ia',
-           fraisConfig:'',nextRelance:'',numeroSent:(c.dateNumero||'').slice(0,10),
+           fraisConfig:'',numeroSent:(c.dateNumero||'').slice(0,10),
            trialStart:(c.dateAdoption||'').slice(0,10),obOwner:c.obOwner||'',
+           lastActivity:(c.lastActivity||'').slice(0,10),
            lien,notes:'',hsStatut:c.statut,history:[]};
         if(['numero','pret'].includes(p.stage)&&!p.numeroSent) p.numeroSent=isoToday();
         log(p,'Importé depuis HubSpot ('+(c.statut||'sans statut')+')');
@@ -638,6 +639,7 @@ async function syncHubspot(){
         if(c.dateAdoption) p.trialStart=c.dateAdoption.slice(0,10);
         if(c.rdvLancement) p.rdvConfig=c.rdvLancement.slice(0,16);
         if(c.obOwner) p.obOwner=c.obOwner;
+        if(c.lastActivity) p.lastActivity=c.lastActivity.slice(0,10);
         p.hsStatut=c.statut;
         if(mapped&&mapped!==p.stage){
           p.stage=mapped;
@@ -736,7 +738,7 @@ document.getElementById('btnImportGo').onclick=async()=>{
     const p={id:'p'+Date.now()+Math.random().toString(36).slice(2,6),owner:cfg.ownerId||'',
       nom:parts[0],cabinet:parts[1]||'',tel:parts[2]||'',codeClient:parts[3]||'',
       dateSignature:isoToday(),rdvConfig:'',stage:'essai_ia',
-      fraisConfig:'',nextRelance:addDays(isoToday(),1),numeroSent:'',trialStart:'',lien:'',notes:'',history:[]};
+      fraisConfig:'',numeroSent:'',trialStart:'',lien:'',notes:'',history:[]};
     log(p,'Importé (signature)');
     state.push(p); n++;
   }
