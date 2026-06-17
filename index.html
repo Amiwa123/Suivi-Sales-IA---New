@@ -57,6 +57,11 @@
   .prio-detail{color:var(--ink-soft);font-size:13px}
   .prio-actions{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
   a.prio-fiche{font-size:12.5px;font-weight:700;color:var(--urgent);text-decoration:underline;padding:6px 4px;white-space:nowrap}
+  .prio-trash{background:var(--surface);border:1px solid var(--line);color:var(--ink-soft);font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:8px;cursor:pointer}
+  .prio-trash:hover{background:var(--bg)}
+  .prio-restore{margin-left:auto;background:var(--surface);border:1px solid var(--line);color:var(--ink-soft);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer}
+  .prio-restore:hover{filter:brightness(.97)}
+  .prio h2{justify-content:flex-start}
 
   .board{display:flex;gap:14px;overflow-x:auto;padding-bottom:14px;align-items:flex-start}
   .col{min-width:262px;width:262px;flex-shrink:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px}
@@ -158,7 +163,9 @@
 
 <main>
   <section class="prio" id="prioBlock" hidden>
-    <h2>🔥 À traiter en priorité <span class="count" id="prioCount">0</span></h2>
+    <h2>🔥 À traiter en priorité <span class="count" id="prioCount">0</span>
+      <button class="prio-restore" id="btnRestorePrio" hidden>↩︎ Réafficher les masquées (<span id="hiddenCount">0</span>)</button>
+    </h2>
     <div id="prioList"></div>
   </section>
 
@@ -285,6 +292,7 @@ const STAGE_MIGRATION={signe:'essai_ia',noshow_rdv:'no_show',numero_envoye:'nume
 let state=[];
 let editingId=null;
 let cfg={workerUrl:'',ownerId:'',ownerName:'',owners:[]};
+let hiddenPrio={}; // { "dossierId|reason": true } -> priorités masquées à la main
 
 /* ---------- Stockage (adaptatif : Claude ou fichier autonome) ---------- */
 const hasClaudeStorage=typeof window.storage!=='undefined'&&window.storage&&typeof window.storage.get==='function';
@@ -314,7 +322,10 @@ async function saveState(){
 }
 async function loadCfg(){
   try{ const raw=await storeGet(CFG_KEY); if(raw) cfg=Object.assign(cfg,JSON.parse(raw)); }catch(e){}
+  try{ const raw=await storeGet('dentalcall:hiddenPrio'); if(raw) hiddenPrio=JSON.parse(raw); }catch(e){}
 }
+async function saveHidden(){ try{ await storeSet('dentalcall:hiddenPrio', JSON.stringify(hiddenPrio)); }catch(e){} }
+const prioKey=(p,reason)=>p.id+'|'+reason;
 async function saveCfg(){
   try{ await storeSet(CFG_KEY, JSON.stringify(cfg)); }catch(e){}
 }
@@ -434,8 +445,13 @@ function render(){
     (prio.length?`<span class="stat-chip alert">${prio.length} urgence${prio.length>1?'s':''}</span>`:'');
 
   const pb=document.getElementById('prioBlock');
-  const shown=prio.filter(it=>match(it.p));
-  pb.hidden=shown.length===0;
+  const matched=prio.filter(it=>match(it.p));
+  const shown=matched.filter(it=>!hiddenPrio[prioKey(it.p,it.reason)]);
+  const hiddenN=matched.length-shown.length;
+  const restoreBtn=document.getElementById('btnRestorePrio');
+  restoreBtn.hidden=hiddenN===0;
+  document.getElementById('hiddenCount').textContent=hiddenN;
+  pb.hidden=shown.length===0&&hiddenN===0;
   document.getElementById('prioCount').textContent=shown.length;
   document.getElementById('prioList').innerHTML=shown.map(it=>{
     const p=it.p;
@@ -446,6 +462,7 @@ function render(){
       <span class="prio-actions">
         ${p.lien?`<a class="prio-fiche" href="${esc(p.lien)}" target="_blank" rel="noopener">📞 clique ici ↗</a>`:''}
         ${stageById(p.stage).next?`<button class="btn-sm btn-next" data-next="${p.id}">${stageById(p.stage).nextLabel}</button>`:''}
+        <button class="prio-trash" data-hideprio="${esc(prioKey(p,it.reason))}" title="Masquer cette priorité">Masquer</button>
       </span>
     </div>`;
   }).join('');
@@ -769,6 +786,14 @@ document.body.addEventListener('change',async e=>{
   await saveState(); render();
 });
 
+document.body.addEventListener('click',async e=>{
+  const hideBtn=e.target.closest('[data-hideprio]');
+  if(hideBtn){ hiddenPrio[hideBtn.dataset.hideprio]=true; await saveHidden(); render(); return; }
+});
+document.getElementById('btnRestorePrio').onclick=async()=>{
+  hiddenPrio={}; await saveHidden(); render();
+  toast('Priorités masquées réaffichées');
+};
 document.getElementById('btnAdd').onclick=()=>openEdit(null);
 document.getElementById('search').addEventListener('input',render);
 document.getElementById('btnSync').onclick=syncHubspot;
